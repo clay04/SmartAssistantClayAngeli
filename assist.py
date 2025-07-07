@@ -22,7 +22,7 @@ category_index = {1: "orang", 2: "sepeda", 3: "mobil", 4: "motor", 5: "pesawat",
 # Fungsi untuk mendapatkan respons dari Gemini API
 def get_gemini_response(user_input):
     try:
-        model = genai.GenerativeModel("gemini-pro")
+        model = genai.GenerativeModel("gemini-2.5-flash")
         response = model.generate_content(user_input)
         return response.text.strip() if response.text else "Maaf, saya tidak bisa menjawab saat ini."
     except Exception as e:

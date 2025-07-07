@@ -13,7 +13,7 @@ genai.configure(api_key=GEMINI_API_KEY)
 # Fungsi untuk mendapatkan respons dari Gemini API
 def get_gemini_response(user_input):
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        model = genai.GenerativeModel("gemini-2.5-flash")
         response = model.generate_content(user_input)
         return response.text.strip() if response.text else "Maaf, saya tidak bisa menjawab saat ini."
     except Exception as e:
