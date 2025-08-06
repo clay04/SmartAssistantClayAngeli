@@ -6,8 +6,10 @@ import speech_recognition as sr
 import cv2
 import numpy as np
 import tensorflow as tf
-import google.generativeai as genai
-from gtts import gTTS
+from google import generativeai as genai
+from google.generativeai.types import content_types as types
+import tempfile
+
 
 # Konfigurasi API Gemini
 GEMINI_API_KEY = "AIzaSyDH9Q4m7C_u2dcPCybg9-rkfc5V76t10pY"
@@ -23,27 +25,55 @@ category_index = {1: "orang", 2: "sepeda", 3: "mobil", 4: "motor", 5: "pesawat",
 def get_gemini_response(user_input):
     try:
         model = genai.GenerativeModel("gemini-2.5-flash")
-        response = model.generate_content(user_input)
+        
+        prompt = (
+            "Jawablah dengan bahasa Indonesia yang sangat sederhana, jelas, dan langsung ke inti. "
+            "Jangan gunakan format markdown, simbol seperti tanda bintang (*), atau penjelasan yang terlalu teknis. "
+            "dan jangan membuat jawaban di bold atau di italic dan di garis bawahi"
+            "Jawaban maksimal 2 kalimat. Jika tidak tahu, katakan tidak tahu. Pertanyaannya:\n"
+            f"{user_input}"
+        )
+        
+        response = model.generate_content(prompt)
         return response.text.strip() if response.text else "Maaf, saya tidak bisa menjawab saat ini."
     except Exception as e:
         return f"Terjadi kesalahan saat menghubungi Gemini: {e}"
 
 # Fungsi untuk mengubah teks menjadi suara
 def speak(text):
-    tts = gTTS(text=text, lang="id")
-    filename = "response.mp3"
-    tts.save(filename)
-    
+    client = genai.Client()
+
+    response = client.models.generate_content(
+        model="gemini-2.5-flash-preview-tts",
+        contents=f"Katakan dengan suara ramah: {text}",
+        config=types.GenerateContentConfig(
+            response_modalities=["AUDIO"],
+            speech_config=types.SpeechConfig(
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                        voice_name='Kore',  # Ganti ke voice Indonesia jika ada
+                    )
+                )
+            ),
+        )
+    )
+
+    data = response.candidates[0].content.parts[0].inline_data.data
+
+    # Simpan file sementara
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+        tmp.write(data)
+        tmp_filename = tmp.name
+
     pygame.mixer.init()
-    pygame.mixer.music.load(filename)
+    pygame.mixer.music.load(tmp_filename)
     pygame.mixer.music.play()
-    
+
     while pygame.mixer.music.get_busy():
         time.sleep(1)
-    
+
     pygame.mixer.music.stop()
     pygame.mixer.quit()
-    os.remove(filename)
 
 # Fungsi untuk mengubah suara menjadi teks
 def listen():
