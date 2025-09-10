@@ -47,6 +47,8 @@ def voice_assistant():
         if image_path:
             result = analyze_image(image_path, prompt_text)
 
+        print("Result:", result)
+
         return jsonify({
             "recognized_text": prompt_text,
             "response": result

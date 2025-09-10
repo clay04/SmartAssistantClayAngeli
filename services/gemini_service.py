@@ -77,7 +77,7 @@ def analyze_image(image_path, prompt_text=""):
                 }
             ]
         )
-        
+        print(response)
         return response.text.strip() if response.text else "No response text available"
     except Exception as e:
         return f"Error call Gemini: {str(e)}", 500

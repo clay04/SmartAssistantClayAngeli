@@ -4,4 +4,4 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Config:
-    GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', "AIzaSyDH9Q4m7C_u2dcPCybg9-rkfc5V76t10pY")
+    GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', "AIzaSyAJXtFXt0Yacbvst6OS4JcWQ1Gv4uUXN3E")
