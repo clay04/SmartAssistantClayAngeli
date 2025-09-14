@@ -20,6 +20,7 @@ def voice_assistant():
     print(audio_file)
 
     if not audio_file and not image_file:
+        print("❌ No audio or image file provided")
         return jsonify({"error": "Audio & Image file not provided"}), 400
 
     try:
