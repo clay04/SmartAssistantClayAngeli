@@ -1,11 +1,10 @@
-import os
 import requests
 from config import Config
 
-GOOGLE_MAPS_API_KEY = Config.GOOGLE_MAPS_API_KEY
+OPENCAGE_API_KEY = Config.OPENCAGE_API_KEY
 
-BASE_URL_GEOCODE = "https://maps.googleapis.com/maps/api/geocode/json"
-BASE_URL_PLACES = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
+BASE_URL_GEOCODE = "https://api.opencagedata.com/geocode/v1/json"
+OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 
 
 def get_place_info(latitude: float, longitude: float) -> dict:
@@ -13,44 +12,67 @@ def get_place_info(latitude: float, longitude: float) -> dict:
     Ambil informasi lokasi dari koordinat (alamat lengkap + tempat sekitar).
     """
 
-    # --- 1. Reverse Geocoding (dari lat/lon ke alamat)
+    # --- 1. Reverse Geocoding dengan OpenCage
     geocode_params = {
-        "latlng": f"{latitude},{longitude}",
-        "key": GOOGLE_MAPS_API_KEY,
-        "language": "id"  # biar hasilnya bahasa Indonesia
+        "q": f"{latitude},{longitude}",
+        "key": OPENCAGE_API_KEY,
+        "language": "id",
+        "pretty": 1
     }
 
     geocode_res = requests.get(BASE_URL_GEOCODE, params=geocode_params)
+    if geocode_res.status_code != 200:
+        raise Exception(f"Reverse geocoding failed: {geocode_res.text}")
+
     geocode_data = geocode_res.json()
+    if not geocode_data.get("results"):
+        raise Exception("Tidak ditemukan hasil geocoding")
 
-    if geocode_data.get("status") != "OK":
-        raise Exception(f"Geocoding error: {geocode_data.get('status')}")
+    best_match = geocode_data["results"][0]
+    address = best_match.get("formatted", "Alamat tidak diketahui")
+    components = best_match.get("components", {})
 
-    address = geocode_data["results"][0]["formatted_address"]
-
-    # --- 2. Nearby Places (misalnya ambil tempat dalam radius 500 meter)
-    places_params = {
-        "location": f"{latitude},{longitude}",
-        "radius": 500,
-        "key": GOOGLE_MAPS_API_KEY,
-        "language": "id"
+    address_info = {
+        "road": components.get("road"),
+        "neighbourhood": components.get("neighbourhood"),
+        "suburb": components.get("suburb"),
+        "village": components.get("village"),
+        "city": components.get("city"),
+        "state": components.get("state"),
+        "postcode": components.get("postcode"),
+        "country": components.get("country"),
     }
 
-    places_res = requests.get(BASE_URL_PLACES, params=places_params)
-    places_data = places_res.json()
+    # --- 2. Nearby Places dengan Overpass API (radius 500m)
+    # Cari amenity = shop, supermarket, convenience, restaurant, hospital, school
+    query = f"""
+    [out:json];
+    (
+      node["shop"](around:500,{latitude},{longitude});
+      node["amenity"="hospital"](around:500,{latitude},{longitude});
+      node["amenity"="school"](around:500,{latitude},{longitude});
+      node["amenity"="restaurant"](around:500,{latitude},{longitude});
+    );
+    out;
+    """
+    overpass_res = requests.post(OVERPASS_URL, data={"data": query})
+    if overpass_res.status_code != 200:
+        raise Exception(f"Overpass query failed: {overpass_res.text}")
 
-    if places_data.get("status") != "OK":
-        raise Exception(f"Places error: {places_data.get('status')}")
-
+    overpass_data = overpass_res.json()
     nearby_places = []
-    for place in places_data.get("results", [])[:5]:  # ambil maksimal 5 tempat
+    for element in overpass_data.get("elements", [])[:5]:
         nearby_places.append({
-            "name": place.get("name"),
-            "address": place.get("vicinity"),
-            "rating": place.get("rating")
+            "name": element.get("tags", {}).get("name"),
+            "type": element.get("tags", {}).get("shop") or element.get("tags", {}).get("amenity"),
+            "lat": element.get("lat"),
+            "lon": element.get("lon"),
         })
 
     return {
-        "address": address,
+        "address": {
+            "display_name": address,
+            "details": address_info
+        },
         "nearby_places": nearby_places
     }
