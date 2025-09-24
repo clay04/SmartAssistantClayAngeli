@@ -1,6 +1,8 @@
 from flask import Flask
+import eventlet
+import eventlet.wsgi
 #from routes.auth import auth_bp
-from routes.voice import voice_bp
+from routes.voice import voice_bp, sock
 from routes.vision import vision_bp
 from routes.location import location_bp
 #from routes.admin import admin_bp
@@ -14,5 +16,7 @@ app.register_blueprint(vision_bp, url_prefix='/vision')
 app.register_blueprint(location_bp, url_prefix='/location')
 #app.register_blueprint(admin_bp, url_prefix='/admin')
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+sock.init_app(app)
+
+if __name__ == "__main__":
+    eventlet.wsgi.server(eventlet.listen(("0.0.0.0", 5000)), app)

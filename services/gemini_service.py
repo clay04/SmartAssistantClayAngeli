@@ -1,20 +1,35 @@
-import io
+import io, hashlib, base64, tempfile
 from google import generativeai as genai
 from PIL import Image
 from config import Config
 import speech_recognition as sr
-from pydub import AudioSegment
+from pydub import AudioSegment, silence
 import base64
 import tempfile
 
-
 genai.configure(api_key=Config.GEMINI_API_KEY)
+
+cache_result = {}
+
+def get_file_hash(file_path):
+    with open(file_path, 'rb') as f:
+        return hashlib.md5(f.read()).hexdigest()
 
 # Speech to Text
 def speech_to_text(audio_path):
-    try:         
+    try:
+        file_hash = get_file_hash(audio_path)
+        if file_hash in cache_result:
+            print("Using cached STT result")
+            return cache_result[file_hash]
+        
         sound = AudioSegment.from_file(audio_path)
         sound = sound.set_channels(1).set_frame_rate(16000)
+        
+        nonsilent_chunks = silence.detect_nonsilent(sound, min_silence_len=500, silence_thresh=-40)
+        if nonsilent_chunks:
+            start, end = nonsilent_chunks[0][0], nonsilent_chunks[-1][1]
+            sound = sound[start:end]
         
         converted_path = tempfile.NamedTemporaryFile(delete=False, suffix='.wav')
         sound.export(converted_path.name, format='wav')
@@ -26,6 +41,10 @@ def speech_to_text(audio_path):
             print("Recognized Text:", text)
             return text
         
+        print("Recognized Text:", text)
+        chache_result[file_hash] = text
+        return text
+        
     except sr.UnknownValueError:
         return "Tidak dapat mengenali ucapan"
     except sr.RequestError as e:
@@ -36,10 +55,16 @@ def speech_to_text(audio_path):
 #Analyze Image
 def analyze_image(image_path, prompt_text=""):
     try:
+        file_hash = get_file_hash(image_path)
+        if file_hash in cache_result:
+            print("Using cached image analysis result")
+            return cache_result[file_hash]
+        
         with open(image_path, 'rb') as f:
             image_bytes = f.read()
             
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        image.thumbnail((512, 512))
         buffered = io.BytesIO()
         image.save(buffered, format="JPEG")
         image_bytes = buffered.getvalue()
@@ -65,7 +90,6 @@ def analyze_image(image_path, prompt_text=""):
         )
         
         model = genai.GenerativeModel('gemini-2.5-flash')
-        
         response = model.generate_content(
             contents=[
                 {
@@ -75,10 +99,17 @@ def analyze_image(image_path, prompt_text=""):
                         {"inline_data": {"mime_type": "image/jpeg", "data": image_bs64}},
                     ],
                 }
-            ]
+            ], stream=True
         )
         
-        return response.text.strip() if response.text else "No response text available"
+        for chunk in response:
+            if chunk.text:
+                yield chunk.text
+        
+        cache_result[file_hash] = chunk.text
+        return chunk
+        
     except Exception as e:
         return f"Error call Gemini: {str(e)}", 500
+    
     
