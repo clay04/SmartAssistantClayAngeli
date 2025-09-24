@@ -1,67 +1,115 @@
-import io
+import io, hashlib, base64, tempfile
 from google import generativeai as genai
 from PIL import Image
 from config import Config
-from gtts import gTTS
 import speech_recognition as sr
-from pydub import AudioSegment
+from pydub import AudioSegment, silence
+import base64
 import tempfile
 
 genai.configure(api_key=Config.GEMINI_API_KEY)
 
-def analyze_image(image_file, prompt_text):
+cache_result = {}
+
+def get_file_hash(file_path):
+    with open(file_path, 'rb') as f:
+        return hashlib.md5(f.read()).hexdigest()
+
+# Speech to Text
+def speech_to_text(audio_path):
     try:
-        image = Image.open(image_file.stream).convert("RGB")
+        file_hash = get_file_hash(audio_path)
+        if file_hash in cache_result:
+            print("Using cached STT result")
+            return cache_result[file_hash]
+        
+        sound = AudioSegment.from_file(audio_path)
+        sound = sound.set_channels(1).set_frame_rate(16000)
+        
+        nonsilent_chunks = silence.detect_nonsilent(sound, min_silence_len=500, silence_thresh=-40)
+        if nonsilent_chunks:
+            start, end = nonsilent_chunks[0][0], nonsilent_chunks[-1][1]
+            sound = sound[start:end]
+        
+        converted_path = tempfile.NamedTemporaryFile(delete=False, suffix='.wav')
+        sound.export(converted_path.name, format='wav')
+        
+        r = sr.Recognizer()
+        with sr.AudioFile(converted_path) as source:
+            audio_data = r.record(source)
+            text = r.recognize_google(audio_data, language='id-ID')
+            print("Recognized Text:", text)
+            return text
+        
+        print("Recognized Text:", text)
+        chache_result[file_hash] = text
+        return text
+        
+    except sr.UnknownValueError:
+        return "Tidak dapat mengenali ucapan"
+    except sr.RequestError as e:
+        return f"Kesalahan dalam permintaan: {e}"
+    except Exception as e:
+        return f"STT Error: {e}"
+    
+#Analyze Image
+def analyze_image(image_path, prompt_text=""):
+    try:
+        file_hash = get_file_hash(image_path)
+        if file_hash in cache_result:
+            print("Using cached image analysis result")
+            return cache_result[file_hash]
+        
+        with open(image_path, 'rb') as f:
+            image_bytes = f.read()
+            
+        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        image.thumbnail((512, 512))
         buffered = io.BytesIO()
         image.save(buffered, format="JPEG")
         image_bytes = buffered.getvalue()
         
-        model = genai.GenerativeModel('gemini-2.5-flash')
-        response = model.generate_content([
-            f"Jawablah hanya dalam 1 kalimat yang sangat singkat, jelas, dan langsung ke inti. Hindari penjelasan panjang. Pertanyaannya:\n{prompt_text}",
-            {
-                "mime_type": "image/jpeg",
-                "data": image_bytes,
-            }
-        ])
+        image_bs64 = base64.b64encode(image_bytes).decode('utf-8')
         
-        return response.text.strip() if response.text else "No response text available"
+        guidance = (
+            "Kamu adalah asisten visual untuk tunanetra.\n"
+            "Jawablah pertanyaan pengguna dengan singkat, jelas, dan hanya berdasarkan isi gambar.\n"
+            "Ikuti aturan berikut:\n\n"
+            "1. Jika pertanyaan menanyakan lokasi/posisi benda, sebutkan dengan arah relatif "
+            "(kanan, kiri, depan, tengah, belakang). Contoh: "
+            "\"Tisu ada di sebelah kanan meja\" atau \"Tidak terlihat pada gambar\".\n"
+            "2. Jika pertanyaan menanyakan teks/tulisan, bacakan teks yang terlihat. Jika tidak terbaca, "
+            "jawab \"Tulisan tidak terbaca pada gambar\".\n"
+            "3. Jika pertanyaan menanyakan kondisi/lingkungan, jelaskan ringkas objek penting "
+            "dengan arah relatif juga.\n"
+            "4. Jika informasi yang diminta tidak ada pada gambar, jawab singkat: "
+            "\"Tidak terlihat pada gambar\".\n"
+            "5. Jangan memberi deskripsi panjang kecuali diminta detail oleh pengguna.\n"
+            "6. Gunakan bahasa sederhana agar mudah dipahami lewat pembacaan suara.\n\n"
+            "Format jawaban: SATU kalimat, Bahasa Indonesia, langsung ke inti."
+        )
+        
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        response = model.generate_content(
+            contents=[
+                {
+                    "role": "user",
+                    "parts": [
+                        {"text": f"{guidance}. Pertanyaannya adalah: \n{prompt_text}"},
+                        {"inline_data": {"mime_type": "image/jpeg", "data": image_bs64}},
+                    ],
+                }
+            ], stream=True
+        )
+        
+        for chunk in response:
+            if chunk.text:
+                yield chunk.text
+        
+        cache_result[file_hash] = chunk.text
+        return chunk
+        
     except Exception as e:
         return f"Error call Gemini: {str(e)}", 500
     
-# TEXT-TO-SPEECH (Google TTS)
-def text_to_speech(text):
-    try:
-        tts = gTTS(text=text, lang='id')
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
-        tts.save(temp_file.name)
-        return temp_file.name
-    except Exception as e:
-        return f"Error generating audio: {str(e)}", 500
     
-
-# SPEECH-TO-TEXT (Google SpeechRecognition)
-def speech_to_text(audio_file):
-    try:
-        # Simpan audio sementara
-        temp_input = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-        audio_file.save(temp_input.name)
-
-        # Konversi ke format standar
-        sound = AudioSegment.from_file(temp_input.name)
-        sound = sound.set_channels(1).set_frame_rate(16000)
-        converted_path = tempfile.NamedTemporaryFile(delete=False, suffix=".wav").name
-        sound.export(converted_path, format="wav")
-
-        # Proses STT
-        r = sr.Recognizer()
-        with sr.AudioFile(converted_path) as source:
-            audio_data = r.record(source)
-            text = r.recognize_google(audio_data, language="id-ID")
-            return text
-    except sr.UnknownValueError:
-        raise Exception("Suara tidak dikenali.")
-    except sr.RequestError:
-        raise Exception("Koneksi ke layanan Google Speech Recognition gagal.")
-    except Exception as e:
-        raise Exception(f"STT error: {e}")

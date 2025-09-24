@@ -1,40 +1,123 @@
-from flask import Blueprint, request, jsonify, send_file
-from services.gemini_service import speech_to_text, text_to_speech
-import tempfile
-from google import generativeai as genai
+import os, json, base64, tempfile
+from flask import Blueprint, request, jsonify
+from services.gemini_service import speech_to_text, analyze_image
+from werkzeug.utils import secure_filename
+from flask_sock import Sock
+from pydub import AudioSegment
 
-voice_bp = Blueprint('voice', __name__)
+voice_bp = Blueprint("voice", __name__)
 
-@voice_bp.route('/assistant', methods=['POST'])
+sock = Sock()   
+
+UPLOAD_FOLDER = "uploads"
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+@voice_bp.route("/assistant", methods=["POST"])
 def voice_assistant():
-    audio = request.files.get('audio')
+    print("🔍 request.files:", request.files)
+    print("🔍 request.form:", request.form)
+    
+    audio_file = request.files.get("audio")
+    image_file = request.files.get("image")
+    
+    print(image_file)
+    print(audio_file)
 
-    if not audio:
-        return jsonify({'error': 'Audio file not provided'}), 400
+    if not audio_file and not image_file:
+        print("❌ No audio or image file provided")
+        return jsonify({"error": "Audio & Image file not provided"}), 400
 
     try:
-        # 1. STT
-        recognized_text = speech_to_text(audio)
+        audio_path, image_path = None, None
 
-        # 2. Langsung ke Gemini (tanpa lewat ask_text)
-        model = genai.GenerativeModel('gemini-2.5-flash')
-        prompt = (
-            "Jawablah hanya dalam satu kalimat yang sangat jelas, ringkas, dan langsung ke intinya. "
-            "Hindari simbol, format markdown, atau penjelasan teknis.\n"
-            f"{recognized_text}"
-        )
-        response = model.generate_content(prompt)
-        response_text = response.text.strip() if response.text else "Tidak ada jawaban."
+        if audio_file:
+            audio_filename = secure_filename(audio_file.filename)
+            audio_path = os.path.join(UPLOAD_FOLDER, audio_filename)
+            audio_file.save(audio_path)
+            print("✅ Audio saved:", audio_path)
 
-        # 3. TTS
-        audio_path = text_to_speech(response_text)
+        if image_file:
+            image_filename = secure_filename(image_file.filename)
+            image_path = os.path.join(UPLOAD_FOLDER, image_filename)
+            image_file.save(image_path)
+            print("✅ Image saved:", image_path)
 
-        return send_file(audio_path, mimetype='audio/mpeg', as_attachment=False,
-                         download_name="response.mp3",
-                         headers={
-                             "X-Recognized-Text": recognized_text,
-                             "X-Response-Text": response_text
-                         })
+        # Jalankan STT kalau ada audio
+        prompt_text = ""
+        if audio_path:
+            prompt_text = speech_to_text(audio_path)
+
+        # Analisa gambar kalau ada
+        result = ""
+        if image_path:
+            result = analyze_image(image_path, prompt_text)
+
+        return jsonify({
+            "recognized_text": prompt_text,
+            "response": result
+        }), 200
 
     except Exception as e:
-        return jsonify({"error": f"Gagal memproses suara: {e}"}), 500
+        return jsonify({"error": f"Gagal memproses suara/gambar: {str(e)}"}), 500
+
+@sock.route("/voice/ws")
+def assistant_ws(ws):
+    """
+    WebSocket untuk real-time voice+image + streaming response dari Gemini
+    """
+    while True:
+        data = ws.receive()
+        if not data:
+            break
+
+        try:
+            msg = json.loads(data)
+            audio_b64 = msg.get("audio")
+            image_b64 = msg.get("image")
+            
+            print("🔍 Received WS message:", msg)
+            print("Reachived ws message:", len(msg))
+            print("🔍 Audio present:", bool(audio_b64))
+            print("🔍 Image present:", bool(image_b64))
+
+            prompt_text = ""
+            if audio_b64:
+                with tempfile.NamedTemporaryFile(delete=False) as f:
+                    f.write(base64.b64decode(audio_b64))
+                    f.flush()
+                    try:
+                        # biarkan ffmpeg autodetect format
+                        audio = AudioSegment.from_file(f.name)
+                        wav_path = f"{f.name}.wav"
+                        audio.export(wav_path, format="wav")
+                        prompt_text = speech_to_text(wav_path)
+                    except Exception as e:
+                        ws.send(json.dumps({"error": f"FFmpeg decode error: {str(e)}"}))
+                        continue
+
+                    
+                    
+                    prompt_text = speech_to_text(f.name)
+                    print("✅ STT Result:", prompt_text)
+
+            result_text = ""
+            if image_b64:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as f:
+                    f.write(base64.b64decode(image_b64))
+                    f.flush()
+                    #result_text = analyze_image(f.name, prompt_text)
+                    for result_text in analyze_image(f.name, prompt_text):
+                        ws.send(json.dumps({"image_token": result_text}))
+                    
+                    if hasattr(result_text, "__iter__") and not isinstance(result_text, str):
+                        result_text = "".join(result_text)
+                    else:
+                        result_text = result_text
+                        
+                    print("✅ Image Analysis Result:", result_text)
+
+
+            ws.send(json.dumps({"event": "end"}))
+
+        except Exception as e:
+            ws.send(json.dumps({"error": str(e)}))
