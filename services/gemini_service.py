@@ -7,6 +7,8 @@ from pydub import AudioSegment, silence
 import base64
 import tempfile
 
+from services.location_service import get_place_info
+
 genai.configure(api_key=Config.GEMINI_API_KEY)
 
 cache_result = {}
@@ -53,7 +55,7 @@ def speech_to_text(audio_path):
         return f"STT Error: {e}"
     
 #Analyze Image
-def analyze_image(image_path, prompt_text=""):
+def analyze_image(image_path, prompt_text="", latitude=None, longitude=None):
     try:
         file_hash = get_file_hash(image_path)
         if file_hash in cache_result:
@@ -68,6 +70,18 @@ def analyze_image(image_path, prompt_text=""):
         buffered = io.BytesIO()
         image.save(buffered, format="JPEG")
         image_bytes = buffered.getvalue()
+        
+        # Get location context if coordinates provided
+        location_context = ""
+        if latitude and longitude:
+            try:
+                location_info = get_place_info(latitude, longitude)
+                address = location_info["address"]["display_name"]
+                nearby = ", ".join(
+                    [f"{p['name']} ({p['type']})" for p in location_info["nearby_places"] if p.get("name")])
+                location_context = f"Lokasi saat ini: {address}. Tempat terdekat: {nearby}."
+            except Exception as e:
+                location_context = f"Gagal mendapatkan info lokasi: {str(e)}"
         
         image_bs64 = base64.b64encode(image_bytes).decode('utf-8')
         
@@ -97,17 +111,24 @@ def analyze_image(image_path, prompt_text=""):
                     "parts": [
                         {"text": f"{guidance}. Pertanyaannya adalah: \n{prompt_text}"},
                         {"inline_data": {"mime_type": "image/jpeg", "data": image_bs64}},
+                        {"text": f"ketika user bertanya mengenai lokasi atau lokasi sekitar baru ini di jawab. dan lokasinya adalah : {location_context}"},
                     ],
                 }
             ], stream=True
         )
         
+        final_text = ""
         for chunk in response:
-            if chunk.text:
-                yield chunk.text
-        
-        cache_result[file_hash] = chunk.text
-        return chunk
+            if hasattr(chunk, "text") and chunk.text:
+                token = chunk.text.strip()
+                final_text += token
+                yield token  # streaming ke WS
+
+        if not final_text:
+            final_text = "Tidak ada respons dari Gemini."
+
+        cache_result[file_hash] = final_text
+        return final_text
         
     except Exception as e:
         return f"Error call Gemini: {str(e)}", 500
