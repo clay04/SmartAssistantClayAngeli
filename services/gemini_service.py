@@ -20,7 +20,7 @@ def speech_to_text(audio_path):
     try:
         file_hash = get_file_hash(audio_path)
         if file_hash in cache_result:
-            print("Using cached STT result")
+            #print("Using cached STT result")
             return cache_result[file_hash]
         
         sound = AudioSegment.from_file(audio_path)
@@ -41,7 +41,7 @@ def speech_to_text(audio_path):
             print("Recognized Text:", text)
             return text
         
-        print("Recognized Text:", text)
+        #print("Recognized Text:", text)
         chache_result[file_hash] = text
         return text
         
@@ -57,7 +57,7 @@ def analyze_image(image_path, prompt_text=""):
     try:
         file_hash = get_file_hash(image_path)
         if file_hash in cache_result:
-            print("Using cached image analysis result")
+            #print("Using cached image analysis result")
             return cache_result[file_hash]
         
         with open(image_path, 'rb') as f:

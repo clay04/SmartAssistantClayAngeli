@@ -12,6 +12,7 @@ sock = Sock()
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+"""
 @voice_bp.route("/assistant", methods=["POST"])
 def voice_assistant():
     print("🔍 request.files:", request.files)
@@ -59,6 +60,7 @@ def voice_assistant():
 
     except Exception as e:
         return jsonify({"error": f"Gagal memproses suara/gambar: {str(e)}"}), 500
+"""
 
 @sock.route("/voice/ws")
 def assistant_ws(ws):
@@ -77,8 +79,8 @@ def assistant_ws(ws):
             
             print("🔍 Received WS message:", msg)
             print("Reachived ws message:", len(msg))
-            print("🔍 Audio present:", bool(audio_b64))
-            print("🔍 Image present:", bool(image_b64))
+            #print("🔍 Audio present:", bool(audio_b64))
+            #print("🔍 Image present:", bool(image_b64))
 
             prompt_text = ""
             if audio_b64:
@@ -98,7 +100,7 @@ def assistant_ws(ws):
                     
                     
                     prompt_text = speech_to_text(f.name)
-                    print("✅ STT Result:", prompt_text)
+                    #print("✅ STT Result:", prompt_text)
 
             result_text = ""
             if image_b64:
