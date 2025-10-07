@@ -13,8 +13,8 @@ class Config:
     # Mysql
     MYSQL_HOST = "localhost"
     MYSQL_PORT = 3306
-    MYSQL_USER = "smart"
-    MYSQL_PASSWORD = "12345"
+    MYSQL_USER = "root"
+    MYSQL_PASSWORD = ""
     MYSQL_DB = "db_smart_assistant"
     
     # JWT
