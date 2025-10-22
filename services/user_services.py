@@ -50,3 +50,46 @@ def delete_tokens(conn, user_id):
         cur.execute("DELETE FROM user_tokens WHERE user_id = %s", (user_id,))
     conn.commit()
 
+def get_list_users(conn, search_query):
+    with conn.cursor() as cur:
+        if search_query:
+            cur.execute("""
+                SELECT id_user, first_name, last_name, username, created_at
+                FROM users
+                WHERE first_name LIKE %s OR last_name LIKE %s OR username LIKE %s
+                ORDER BY created_at DESC
+            """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
+        else:
+            cur.execute("""
+                SELECT id_user, first_name, last_name, username, created_at
+                FROM users
+                ORDER BY created_at DESC
+            """)
+        
+        return cur.fetchall()
+    
+def get_users_details(conn, id_user):
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT id_user, first_name, last_name, username, created_at
+            FROM users
+            WHERE id_user = %s
+        """, (id_user,))
+        return cur.fetchone()
+        
+def get_user_by_id_user(conn, id_user):
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM users WHERE id_user = %s", (id_user,))
+        return cur.fetchone()
+        
+def delete_user(conn, id_user):
+    with conn.cursor() as cur:
+        # Hapus Relasi
+        cur.execute("DELETE FROM gemini_responses WHERE id_user = %s", (id_user,))
+        cur.execute("DELETE FROM user_inputs WHERE id_user = %s", (id_user,))
+        cur.execute("DELETE FROM user_tokens WHERE user_id = %s", (id_user,))
+        
+        # Hapus user
+        cur.execute("DELETE FROM users WHERE id_user = %s", (id_user,))
+    conn.commit()
+    return True
