@@ -2,8 +2,6 @@ import io, hashlib, base64, tempfile
 from google import generativeai as genai
 from PIL import Image
 from config import Config
-import speech_recognition as sr
-from pydub import AudioSegment, silence
 import base64
 import tempfile
 
@@ -16,46 +14,9 @@ cache_result = {}
 def get_file_hash(file_path):
     with open(file_path, 'rb') as f:
         return hashlib.md5(f.read()).hexdigest()
-
-# Speech to Text
-def speech_to_text(audio_path):
-    try:
-        file_hash = get_file_hash(audio_path)
-        if file_hash in cache_result:
-            print("Using cached STT result")
-            return cache_result[file_hash]
-        
-        sound = AudioSegment.from_file(audio_path)
-        sound = sound.set_channels(1).set_frame_rate(16000)
-        
-        nonsilent_chunks = silence.detect_nonsilent(sound, min_silence_len=500, silence_thresh=-40)
-        if nonsilent_chunks:
-            start, end = nonsilent_chunks[0][0], nonsilent_chunks[-1][1]
-            sound = sound[start:end]
-        
-        converted_path = tempfile.NamedTemporaryFile(delete=False, suffix='.wav')
-        sound.export(converted_path.name, format='wav')
-        
-        r = sr.Recognizer()
-        with sr.AudioFile(converted_path) as source:
-            audio_data = r.record(source)
-            text = r.recognize_google(audio_data, language='id-ID')
-            print("Recognized Text:", text)
-            return text
-        
-        print("Recognized Text:", text)
-        chache_result[file_hash] = text
-        return text
-        
-    except sr.UnknownValueError:
-        return "Tidak dapat mengenali ucapan"
-    except sr.RequestError as e:
-        return f"Kesalahan dalam permintaan: {e}"
-    except Exception as e:
-        return f"STT Error: {e}"
     
 #Analyze Image
-def analyze_image(image_path, prompt_text="", latitude=None, longitude=None):
+def analyze_image(image_path, user_text="", latitude=None, longitude=None):
     try:
         file_hash = get_file_hash(image_path)
         if file_hash in cache_result:
@@ -109,7 +70,7 @@ def analyze_image(image_path, prompt_text="", latitude=None, longitude=None):
                 {
                     "role": "user",
                     "parts": [
-                        {"text": f"{guidance}. Pertanyaannya adalah: \n{prompt_text}"},
+                        {"text": f"{guidance}. Pertanyaannya adalah: \n{user_text}"},
                         {"inline_data": {"mime_type": "image/jpeg", "data": image_bs64}},
                         {"text": f"ketika user bertanya mengenai lokasi atau lokasi sekitar baru ini di jawab. dan lokasinya adalah : {location_context}"},
                     ],
