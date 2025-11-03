@@ -1,101 +1,82 @@
-import os, json, base64, tempfile, threading
-from flask import Blueprint, request, jsonify
-from services.gemini_service import speech_to_text, analyze_image
-from services.location_service import get_place_info
+import os, base64, threading
+from flask import Blueprint
+from flask_socketio import emit
 from werkzeug.utils import secure_filename
-from flask_sock import Sock
-from pydub import AudioSegment
+from services.gemini_service import analyze_image
+from services.location_service import get_place_info
 from services.database_service import save_interaction_async
 from services.token_service import validate_token
+from extensions import socketio
 
 voice_bp = Blueprint("voice", __name__)
-
-sock = Sock()   
 
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-@sock.route("/voice/ws")
-def assistant_ws(ws):
-    """
-    WebSocket untuk real-time voice+image + streaming response dari Gemini
-    """
-    while True:
-        data = ws.receive()
-        if not data:
-            break
+@socketio.on("connect")
+def handle_connect():
+    print("✅ Client connected")
 
-        try:
-            msg = json.loads(data)
-            token = msg.get("access_token")
-            user_id = validate_token(token)
-            print("Validated user_id:", user_id)
-            print("Received token:", token)
-            if not user_id:
-                ws.send(json.dumps({"error": "Invalid or expired token"}))
-                continue
-            
-            audio_b64 = msg.get("audio")
-            image_b64 = msg.get("image")
-            #Location
-            latitude = msg.get("latitude")
-            longitude = msg.get("longitude")
-            
-            print("Received WS message:", msg)
-            print("Reachived ws message:", len(msg))
-            print("Audio present:", bool(audio_b64))
-            print("Image present:", bool(image_b64))
-            
-            print("Location:", latitude, longitude)
-            
-            if latitude is None or longitude is None:
-                ws.send(json.dumps({"error": "Latitude and Longitude are required"}))
-                continue
-            else:
-                try:
-                    location_info = get_place_info(latitude, longitude)
-                    #ws.send(json.dumps({"token": f"Lokasi: {location_info}"}))
-                except Exception as e:
-                    ws.send(json.dumps({"error": f"Location error: {str(e)}"}))
+@socketio.on("disconnect")
+def handle_disconnect():
+    print("❌ Client disconnected")
 
-            prompt_text = ""
-            if audio_b64:
-                with tempfile.NamedTemporaryFile(delete=False) as f:
-                    f.write(base64.b64decode(audio_b64))
-                    f.flush()
-                    try:
-                        # biarkan ffmpeg autodetect format
-                        audio = AudioSegment.from_file(f.name)
-                        wav_path = f"{f.name}.wav"
-                        audio.export(wav_path, format="wav")
-                        prompt_text = speech_to_text(wav_path)
-                    except Exception as e:
-                        ws.send(json.dumps({"error": f"FFmpeg decode error: {str(e)}"}))
-                        continue
-                    
-                    prompt_text = speech_to_text(f.name)
-                    print("✅ STT Result:", prompt_text)
+@socketio.on("voice_message")
+def handle_voice_message(data):
+    print("📩 Received voice_message:", list(data.keys()))
 
-            final_result = ""
-            
-            if image_b64:
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as f:
-                    f.write(base64.b64decode(image_b64))
-                    f.flush()
-                    image_b64 = f.name
-                    
-            for token in analyze_image(f.name, prompt_text, latitude, longitude):
-                ws.send(json.dumps({"token": token}))
-                final_result += token
+    try:
+        token = data.get("access_token")
+        user_id = validate_token(token)
+        if not user_id:
+            emit("error", {"error": "Invalid or expired token"})
+            return
 
-            print("✅ Image Analysis Result:", final_result)
-            
-            threading.Thread(
-                target=save_interaction_async,
-                args=(user_id, prompt_text, final_result, image_b64 if image_b64 else None, latitude, longitude, location_info)
-            ).start()    
+        user_text = data.get("text", "")
+        image_b64 = data.get("image")
+        latitude = data.get("latitude")
+        longitude = data.get("longitude")
 
-            ws.send(json.dumps({"event": "end"}))
+        print(f"👤 User {user_id} | Pesan: {user_text}")
 
-        except Exception as e:
-            ws.send(json.dumps({"error": str(e)}))
+        if latitude is None or longitude is None:
+            emit("error", {"error": "Latitude and Longitude are required"})
+            return
+
+        location_info = get_place_info(latitude, longitude)
+        final_result = ""
+
+        # simpan gambar sementara
+        save_path = None
+        if image_b64:
+            image_data = base64.b64decode(image_b64)
+            filename = secure_filename(f"user_{user_id}_{threading.get_ident()}.jpg")
+            save_path = os.path.join(UPLOAD_FOLDER, filename)
+            with open(save_path, "wb") as f:
+                f.write(image_data)
+
+        # jalankan proses Gemini di thread terpisah biar streaming aman
+        def process_gemini():
+            nonlocal final_result
+            try:
+                for token in analyze_image(save_path, user_text, latitude, longitude):
+                    print("🟢 Emitting token ke client:", token)
+                    socketio.emit("response_token", {"token": token})
+                    #socketio.sleep(0)
+                    final_result += token
+
+                socketio.emit("end", {"event": "end"})
+
+                threading.Thread(
+                    target=save_interaction_async,
+                    args=(user_id, user_text, final_result, save_path, latitude, longitude, location_info)
+                ).start()
+
+            except Exception as e:
+                print("⚠️ Error di Gemini thread:", e)
+                socketio.emit("error", {"error": str(e)})
+
+        threading.Thread(target=process_gemini).start()
+
+    except Exception as e:
+        emit("error", {"error": str(e)})

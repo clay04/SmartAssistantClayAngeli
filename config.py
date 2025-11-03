@@ -11,7 +11,7 @@ class Config:
     OPENCAGE_API_KEY = os.getenv('OPENCAGE_API_KEY', "19b89e38e01444e493ace9f541f2d3d7")
     
     # Mysql
-    MYSQL_HOST = "localhost"
+    MYSQL_HOST = "127.0.0.1"
     MYSQL_PORT = 3306
     MYSQL_USER = "root"
     MYSQL_PASSWORD = ""

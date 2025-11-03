@@ -8,6 +8,9 @@ def get_all_history(conn, search):
                     CONCAT(u.first_name, ' ', u.last_name) AS full_name,
                     u.username,
                     ui.text_input,
+                    ui.image_base64,
+                    ui.longitude,
+                    ui.latitude,
                     ui.location_text,
                     gr.response_text,
                     ui.created_at AS input_time,
@@ -26,6 +29,8 @@ def get_all_history(conn, search):
                     CONCAT(u.first_name, ' ', u.last_name) AS full_name,
                     u.username,
                     ui.text_input,
+                    ui.longitude,
+                    ui.latitude,
                     ui.location_text,
                     gr.response_text,
                     ui.created_at AS input_time,
@@ -37,3 +42,48 @@ def get_all_history(conn, search):
             """)
             
         return cur.fetchall()
+    
+def get_all_user_history(conn, id_user):
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT 
+                ui.id_input,
+                u.id_user,
+                CONCAT(u.first_name, ' ', u.last_name) AS full_name,
+                u.username,
+                ui.text_input,
+                ui.longitude,
+                ui.latitude,
+                ui.location_text,
+                gr.response_text,
+                ui.created_at AS input_time,
+                gr.created_at AS response_time
+            FROM user_inputs ui
+            LEFT JOIN gemini_responses gr ON ui.id_input = gr.id_input
+            LEFT JOIN users u ON ui.id_user = u.id_user
+            WHERE ui.id_user = %s
+            ORDER BY ui.created_at DESC
+        """, (id_user,))
+        return cur.fetchall()
+
+def get_detail_history(conn, id_input):
+    with conn.cursor() as cur:
+        cur.execute("""SELECT 
+                ui.id_input,
+                u.id_user,
+                CONCAT(u.first_name, ' ', u.last_name) AS full_name,
+                u.username,
+                ui.text_input,
+                ui.image_base64,
+                ui.longitude,
+                ui.latitude,
+                ui.location_text,
+                gr.response_text,
+                ui.created_at AS input_time,
+                gr.created_at AS response_time
+            FROM user_inputs ui
+            LEFT JOIN gemini_responses gr ON ui.id_input = gr.id_input
+            LEFT JOIN users u ON ui.id_user = u.id_user
+            WHERE ui.id_input = %s
+            """, (id_input, ))
+        return cur.fetchone()

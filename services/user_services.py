@@ -14,6 +14,15 @@ def create_user(conn, first_name, last_name, username, hashed_password):
     cur.close()
     return user_id
 
+def update_user_data(conn, id_user, first_name, last_name):
+    with conn.cursor() as cur:
+        cur.execute("""
+            UPDATE users
+            SET first_name=%s, last_name=%s, updated_at=NOW()
+            WHERE id_user=%s
+        """, (first_name, last_name, id_user))
+    conn.commit()
+
 def get_user_by_username(conn, username):
     """
     Ambil user berdasarkan username
@@ -71,7 +80,7 @@ def get_list_users(conn, search_query):
 def get_users_details(conn, id_user):
     with conn.cursor() as cur:
         cur.execute("""
-            SELECT id_user, first_name, last_name, username, created_at
+            SELECT *
             FROM users
             WHERE id_user = %s
         """, (id_user,))

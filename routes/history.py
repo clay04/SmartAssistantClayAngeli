@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from services.history_service import get_all_history
+from services.history_service import get_all_history, get_detail_history
 from db import get_db
 
 history_bp = Blueprint("history", __name__)
@@ -22,3 +22,21 @@ def get_history():
         "history": history
     }), 200
     
+@history_bp.route("/detail/<int:id_input>", methods=["GET"])
+@jwt_required()
+def get_detail(id_input):
+    identity = get_jwt_identity()
+    if not str(identity).startswith("admin"):
+        return jsonify({"error": "Anaudtorized acces"}), 403
+    
+    conn = get_db()
+    
+    detail_history = get_detail_history(conn, id_input)
+    
+    if not detail_history:
+        return jsonify({"error": "History tidak ditemukan"}), 404
+    
+    return jsonify({
+        "message" : "Detail Histori telah di temukan",
+        "history" : detail_history
+    }), 200

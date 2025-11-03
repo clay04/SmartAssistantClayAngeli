@@ -2,8 +2,9 @@ from flask import Blueprint, request, jsonify
 from db import get_db
 from services.token_service import validate_token
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from services.user_services import get_list_users, get_users_details, get_user_by_id_user
+from services.user_services import get_list_users, get_users_details, get_user_by_id_user, update_user_data, delete_user
 from services.session_service import get_user_session
+from services.history_service import get_all_user_history
 
 users_bp = Blueprint("users", __name__)
 
@@ -42,15 +43,42 @@ def get_user_details(id_user):
     
     if not user:
         return jsonify({"error": "User not found"}), 404
+    
+    history = get_all_user_history(conn, id_user)
 
     return jsonify({
         "meassage": "User details fetched successfully",
-        "user": user
+        "user": user,
+        "history_count": len(history),
+        "history": history
     }), 200
+    
+@users_bp.route("/update/<int:id_user>", methods=["PUT"])
+@jwt_required()
+def update_user(id_user):
+    identity = get_jwt_identity()
+    if not str(identity).startswith("admin:"):
+        return jsonify({"error": "Unauthorized access"}), 403
+
+    conn = get_db()
+    user = get_user_by_id_user(conn, id_user)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    data = request.get_json()
+    first_name = data.get("first_name", "").strip()
+    last_name = data.get("last_name", "").strip()
+
+    try:
+        update_user_data(conn, id_user, first_name, last_name)
+        return jsonify({"message": "User updated successfully"}), 200
+    except Exception as e:
+        print(f"Error updating user: {e}")
+        return jsonify({"error": "Failed to update user"}), 500
     
 @users_bp.route("/delete/<int:id_user>", methods=["DELETE"])
 @jwt_required()
-def delete_user(id_user):
+def delete_users(id_user):
     identity = get_jwt_identity()
     
     # Pastikan hanya admin yang bisa akses

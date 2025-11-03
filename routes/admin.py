@@ -5,6 +5,7 @@ from datetime import timedelta
 from flask_jwt_extended import create_access_token, create_refresh_token, jwt_required, get_jwt_identity
 from services.admin_service import save_admin_tokens, delete_admin_tokens, validate_admin_token, get_admin_by_username, create_admin
 from services.auth_service import hash_password, check_password
+from services.database_service import get_prompt_system, update_prompt_system, get_user_last_location
 
 admin_bp = Blueprint("admin", __name__)
 
@@ -115,4 +116,61 @@ def admin_register():
             "full_name": full_name
         }
     }), 201
+    
+    
+@admin_bp.route("/prompt", methods=['GET'])
+@jwt_required()
+def get_prompt():
+    identity = get_jwt_identity()
+    if not str(identity).startswith("admin:"):
+        return jsonify({"error": "Unauthorized"}), 403
+    
+    conn = get_db()
+    prompt = get_prompt_system(conn)
+    if not prompt:
+        return jsonify({"Prompt not found"})
+    
+    return jsonify({
+        "message": "Prompt di dapatkan",
+        "prompt": prompt
+    })
+    
+@admin_bp.route("/prompt/update", methods=['PUT'])
+@jwt_required()
+def update_prompt():
+    identity = get_jwt_identity()
+    if not str(identity).startswith("admin:"):
+        return jsonify({"error": "Unauthorized"}), 403
+    
+    data = request.json
+    prompt_text = data.get('prompt_text')
+    update_by = data.get('update_by', 'admin')
+    conn = get_db()
+    
+    update_prompt_system(conn, prompt_text, update_by)
+    
+    return jsonify({
+        "message": "Prompt updat successufuly",
+    })
+
+
+@admin_bp.route("/user-locations", methods=["GET"])
+@jwt_required()
+def get_user_locations():
+    identity = get_jwt_identity()
+    if not str(identity).startswith("admin:"):
+        return jsonify({"error": "Unauthorized"}), 403
+
+    conn = get_db()
+    
+    lst_location = get_user_last_location(conn)
+    
+    for r in lst_location:
+        if isinstance(r.get("location_text"), str):
+            try:
+                r["location_text"] = json.loads(r["location_text"])
+            except:
+                r["location_text"] = None
+    
+    return jsonify({"locations": lst_location})
     

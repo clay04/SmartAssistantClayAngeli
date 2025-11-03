@@ -1,69 +1,53 @@
 from flask import Blueprint, request, jsonify
 from services.location_service import get_place_info
-from flask_sock import Sock
 import json
+from extensions import socketio
+from services.location_service import get_place_info
+from services.token_service import validate_token
+from db import get_db
 
 location_bp = Blueprint("location", __name__)
 
-sock = Sock()
-
-@location_bp.route("/status", methods=["POST"])
-def location_status():
-    data = request.json
-    latitude = data.get("latitude")
-    longitude = data.get("longitude")
-    
-    print("Received location:", latitude, longitude)
-    
-    if latitude is None or longitude is None:
-        return jsonify({"error": "Latitude and Longitude are required"}), 400
-    
+@socketio.on("update_locaiton")
+def handle_location_update(data):
     try:
+        token = data.get("access_token")
+        user_id = validate_token(token)
+        if not user_id:
+            emit("error": "Invalid Token")
+            return
+        
+        latitude = data.get("latitude")
+        longitude = data.get("longitude")
+        
+        if not latitude or not longitude:
+            emit("error": "Latitude/Longitude di perlukan")
+            return
+        
         location_info = get_place_info(latitude, longitude)
-        print("Location Info:", location_info)
+        address = location_info["address"]["display_name"]
+        nearby = ", ".join(
+            [f"{p['name']} ({p['type']})" for p in location_info["nearby_places"] if p.get("name")])
+        location_context = f"Lokasi saat ini: {address}. Tempat terdekat: {nearby}."
+        
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("""
+                        UPDATE user_input
+                        SET latitude=%s, longitude=%s, location_text=%s
+                        WHERE id_user=%s
+                    """, (latitude, longitude, location_context, user_id))
+        conn.commit()
+        
+        emit("ask_location", {
+            "message" : "Lokasi berhasil diperbarui",
+            "address" : location_context,
+            "latitude" : latitude,
+            "longitude" : longitude
+        })
+        
+        print(f"✅ Location updated for user {user_id}: {location_context}")
+        
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    
-    # Here you can add logic to process the location data
-    # For example, you might want to log it, store it in a database, etc.
-    
-    return jsonify({
-        "message": "Location received",
-        "latitude": latitude,
-        "longitude": longitude,
-        "location_info": location_info
-    }), 200
-    
-    
-@sock.route('/location/ws')
-def location_ws(ws):
-    while True:
-        data = ws.receive()
-        if data is None:
-            break
-        try:
-            data_json = json.loads(data)
-            latitude = data_json.get("latitude")
-            longitude = data_json.get("longitude")
-            
-            print("WebSocket Received location:", latitude, longitude)
-            
-            if latitude is None or longitude is None:
-                ws.send(json.dumps({"error": "Latitude and Longitude are required"}))
-                continue
-            
-            try:
-                location_info = get_place_info(latitude, longitude)
-                print("Location Info:", location_info)
-            except Exception as e:
-                ws.send(json.dumps({"error": str(e)}))
-                continue
-            
-            ws.send(json.dumps({
-                "message": "Location received",
-                "latitude": latitude,
-                "longitude": longitude,
-                "location_info": location_info
-            }))
-        except json.JSONDecodeError:
-            ws.send(json.dumps({"error": "Invalid JSON"}))
+        emit("error", {"error": str(e)})
+        print("Errror saat memperbarui Lokasi", e)
