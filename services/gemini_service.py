@@ -4,6 +4,7 @@ from PIL import Image
 from config import Config
 import base64
 import tempfile
+from db import get_db
 
 from services.location_service import get_place_info
 
@@ -16,7 +17,7 @@ def get_file_hash(file_path):
         return hashlib.md5(f.read()).hexdigest()
     
 #Analyze Image
-def analyze_image(image_path, user_text="", latitude=None, longitude=None):
+def analyze_image(image_path, user_id, user_text=""):
     try:
         file_hash = get_file_hash(image_path)
         if file_hash in cache_result:
@@ -34,15 +35,15 @@ def analyze_image(image_path, user_text="", latitude=None, longitude=None):
         
         # Get location context if coordinates provided
         location_context = ""
-        if latitude and longitude:
-            try:
-                location_info = get_place_info(latitude, longitude)
-                address = location_info["address"]["display_name"]
-                nearby = ", ".join(
-                    [f"{p['name']} ({p['type']})" for p in location_info["nearby_places"] if p.get("name")])
-                location_context = f"Lokasi saat ini: {address}. Tempat terdekat: {nearby}."
-            except Exception as e:
-                location_context = f"Gagal mendapatkan info lokasi: {str(e)}"
+        if user_id:
+            db = get_db()
+            cur = db.cursor()
+            cur.execute("SELECT location_text FROM user_inputs WHERE id_user=%s", (user_id,))
+            row = cur.fetchone()
+            cur.close()
+            if row and row["location_text"]:
+                location_context = row["location_text"]
+                #print(f"📍 Loaded location from DB: {location_context}")
         
         image_bs64 = base64.b64encode(image_bytes).decode('utf-8')
         

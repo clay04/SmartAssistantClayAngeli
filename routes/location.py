@@ -5,23 +5,24 @@ from extensions import socketio
 from services.location_service import get_place_info
 from services.token_service import validate_token
 from db import get_db
+from flask_socketio import emit
 
 location_bp = Blueprint("location", __name__)
 
-@socketio.on("update_locaiton")
+@socketio.on("update_location")
 def handle_location_update(data):
     try:
         token = data.get("access_token")
         user_id = validate_token(token)
         if not user_id:
-            emit("error": "Invalid Token")
+            emit("error", "Invalid Token")
             return
         
         latitude = data.get("latitude")
         longitude = data.get("longitude")
         
         if not latitude or not longitude:
-            emit("error": "Latitude/Longitude di perlukan")
+            emit("error", "Latitude/Longitude di perlukan")
             return
         
         location_info = get_place_info(latitude, longitude)
@@ -33,7 +34,7 @@ def handle_location_update(data):
         conn = get_db()
         cur = conn.cursor()
         cur.execute("""
-                        UPDATE user_input
+                        UPDATE user_inputs
                         SET latitude=%s, longitude=%s, location_text=%s
                         WHERE id_user=%s
                     """, (latitude, longitude, location_context, user_id))
